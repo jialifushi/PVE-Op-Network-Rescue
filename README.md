@@ -114,6 +114,9 @@ crontab -l | grep -E "pve_host_monitor|pve_did_reboot_today"
 tail -f /var/log/pve_host_monitor.log
 
 ```
+关于日志文件不存在的解释：
+原因：因为你现在的网络是通的。在你的 PVE 脚本逻辑中，只有当 ping 失败进入故障处理流程时，才会第一次调用 log_pve 函数并创建日志文件。
+验证建议：你可以手动执行一次 echo "Check" >> /var/log/pve_host_monitor.log。只要文件能创建，说明权限没问题。
 
 * **检查点**：
 * 正常情况下应看到：`【检测】互联网断开...` -> `【观察】未发现 SOS 信号...`。
