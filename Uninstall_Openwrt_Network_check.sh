@@ -2,7 +2,7 @@ cat << 'EOF' > /root/uninstall_pppoe_watchdog.sh
 #!/bin/sh
 # ==========================================
 # PPPoE 观测系统一键卸载脚本
-# 功能：彻底清除钩子、日志及核心脚本
+# 功能：彻底清除钩子、日志及核心脚本uninstall_pppoe_watchdog.sh
 # ==========================================
 
 BASE_DIR="/root/pppoe_watchdog"
