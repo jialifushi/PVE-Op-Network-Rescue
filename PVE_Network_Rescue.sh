@@ -2,8 +2,8 @@
 
 # ---------- 配置区域 ----------
 VM_ID="100"                       # 您的 OpenWrt 虚拟机 ID
-OP_IP="192.168.1.1"               # OpenWrt 的内网 IP
-TARGET_IP="114.114.114.114"       # 互联网检测目标
+OP_IP="192.168.10.1"               # OpenWrt 的内网 IP
+TARGET_IP="www.baidu.com"       # 互联网检测目标
 MONITOR_SCRIPT="/root/pve_host_monitor.sh"
 LOG_FILE="/var/log/pve_host_monitor.log"
 PVE_MARK="/root/pve_did_reboot_today"
@@ -27,13 +27,15 @@ echo "[2/4] 正在生成核心监控逻辑..."
 cat << 'EOF' > "$MONITOR_SCRIPT"
 #!/bin/bash
 
-# 导入配置（由部署脚本填充）
-OP_IP="192.168.1.1"
-TARGET_IP="114.114.114.114"
+# 导入配置（由部署脚本填充）直接将变量通过 cat 写入，不再二次 sed
+cat << EOF > "$MONITOR_SCRIPT"
+#!/bin/bash
+OP_IP="$OP_IP"
+TARGET_IP="$TARGET_IP"
 CHECK_INTERVAL=7200           # 2小时检测一次
 RETRY_PING_OP_INTERVAL=40     # 等待 OP 恢复的频率
-LOG_FILE="/var/log/pve_host_monitor.log"
-PVE_MARK="/root/pve_did_reboot_today"
+LOG_FILE="$LOG_FILE"
+PVE_MARK="$PVE_MARK"
 
 log_pve() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"
@@ -124,3 +126,5 @@ echo "----------------------------------------------------------"
 echo " PVE 日志路径: $LOG_FILE"
 echo " OpenWrt 日志: ssh root@$OP_IP 'cat /root/network_monitor.log'"
 echo "=========================================================="
+echo " 4. 查看 OpenWrt 自愈历史："
+echo "    ssh root@$OP_IP 'tail -n 100 /root/network_monitor.log'"
