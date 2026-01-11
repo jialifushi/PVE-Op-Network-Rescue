@@ -19,7 +19,7 @@ COOLING_TS_FILE="/root/net_cooling_ts"
 SOS_FILE="/root/SOS_SYSTEM"
 
 echo "=========================================================="
-echo "      OpenWrt 网络守护神 - 终极审计版 (v3.2)"
+echo "      OpenWrt 网络守护神 - 终极审计版 (v3.3)"
 echo "      包含完整逻辑 + 命令执行结果深度审计"
 echo "=========================================================="
 
@@ -28,10 +28,10 @@ echo "[1/4] 正在清理旧环境..."
 
 # 停止服务
 [ -f "$SERVICE_PATH" ] && "$SERVICE_PATH" stop >/dev/null 2>&1
-# 杀掉残留进程
-_PID=$(pgrep -f network_monitor_logic.sh)
+# 杀掉残留进程 (修复路径笔误)
+_PID=$(/usr/bin/pgrep -f network_monitor_logic.sh)
 if [ -n "$_PID" ]; then
-    kill $_PID >/dev/null 2>&1
+    kill -9 "$_PID" >/dev/null 2>&1
 fi
 
 # 初始化计数文件
@@ -204,7 +204,7 @@ run_fix_logic() {
 }
 
 # --- 监控主循环 ---
-log_msg "[SYSTEM] 监控进程启动 (审计模式 v3.2)。"
+log_msg "[SYSTEM] 监控进程启动 (审计模式 v3.3)。"
 
 while true; do
     run_fix_logic
@@ -235,14 +235,15 @@ start_service() {
 
 stop_service() {
     # 兼容性停止
-    _PID=$(pgrep -f network_monitor_logic.sh)
-    [ -n "$_PID" ] && kill $_PID
+    _PID=$(/usr/bin/pgrep -f network_monitor_logic.sh)
+    [ -n "$_PID" ] && kill "$_PID"
 }
 EOF
 
 chmod +x "$SERVICE_PATH"
+sync && sleep 1 # 增强同步，防止 enable 时找不到文件
 
-# 指令拆分：分步执行 enable 和 restart，确保在 iStoreOS 上无歧义
+# 指令拆分：分步执行 enable 和 restart，确保在 iStoreOS 上无歧义，防止解析错误
 "$SERVICE_PATH" enable
 "$SERVICE_PATH" restart
 
@@ -257,8 +258,8 @@ echo "[4/4] 启动确认中..."
 sleep 2
 
 echo "----------------------------------------------------------"
-# 最终检查
-_FINAL_PID=$(pgrep -f network_monitor_logic.sh)
+# 最终检查 (修正 pgrep 路径)
+_FINAL_PID=$(/usr/bin/pgrep -f network_monitor_logic.sh)
 
 if [ -n "$_FINAL_PID" ]; then
     echo "部署状态: [ 成功运行中 ]"
