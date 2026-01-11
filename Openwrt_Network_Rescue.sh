@@ -124,14 +124,17 @@ run_fix_logic() {
         # --- L1: WAN 重拨 ---
         if [ "$retry_count" -eq "$L1_THRESHOLD" ]; then
             log_msg "【L1-动作】正在执行 ifdown wan ..."
-            ifdown wan
+            
+        #   ifdown wan 可能返回 0，但接口并未存在，因此采用下面写法
+            ifstatus wan >/dev/null 2>&1 && ifdown wan
+            
             if [ $? -eq 0 ]; then
                 log_msg "   -> [成功] WAN 接口停止指令已送达。"
             else
                 log_msg "   -> [错误] ifdown 执行失败。"
             fi
             
-            sleep 5
+            sleep 10
             
             log_msg "【L1-动作】正在执行 ifup wan ..."
             ifup wan
@@ -141,17 +144,19 @@ run_fix_logic() {
                 log_msg "   -> [错误] ifup 执行失败。"
             fi
 
-        # --- L2: 网络栈重启 ---
+        # --- L2: 网络栈重启，L2 重启网络时，建议同时重启 firewall(防火墙) ---
         elif [ "$retry_count" -eq "$L2_THRESHOLD" ]; then
-            log_msg "【L2-动作】正在执行 /etc/init.d/network restart ..."
+            log_msg "【L2-动作】正在执行 /etc/init.d/network restart + firewall ..."
             /etc/init.d/network restart > /dev/null 2>&1
+            /etc/init.d/firewall restart >/dev/null 2>&1
+
             if [ $? -eq 0 ]; then
                 log_msg "   -> [成功] 网络栈重启指令执行完毕。"
             else
                 log_msg "   -> [错误] 网络栈重启指令返回异常。"
             fi
 
-        # --- L3: 系统重启 ---
+        # --- L3: 系统重启，OpenWrt 有时 busybox reboot 会被 blocked(阻塞)：因此reboot 建议用 sync + reboot -f ---
         elif [ "$retry_count" -ge "$L3_THRESHOLD" ]; then
             uptime_sec=$(cut -d. -f1 /proc/uptime)
             
@@ -181,7 +186,8 @@ run_fix_logic() {
                     fi
                     
                     sleep 3
-                    reboot
+                    sync
+                    reboot -f
                 fi
             fi
         fi
