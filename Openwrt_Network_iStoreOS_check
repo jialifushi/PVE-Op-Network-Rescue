@@ -1,1 +1,128 @@
+#!/bin/sh
+# ==========================================
+# PPPoE / WAN / Network 重启日志系统
+# 适用于 OpenWrt / iStoreOS 的一键部署脚本
+# Author: ChatGPT (优化版 v3.5)
+# ==========================================
 
+BASE_DIR="/root/pppoe_watchdog"
+LOGGER="$BASE_DIR/pppoe_logger.sh"
+LOG_FILE="$BASE_DIR/pppoe_events.log"
+
+echo "[*] 正在创建基础目录..."
+mkdir -p "$BASE_DIR"
+
+# ------------------------------------------------
+# 创建主日志记录脚本
+# ------------------------------------------------
+cat << 'EOL' > "$LOGGER"
+#!/bin/sh
+# ==========================================
+# PPPoE / WAN / 网络事件记录器
+# 功能：记录拨号状态、接口升降、服务重启
+# ==========================================
+
+LOG_FILE="/root/pppoe_watchdog/pppoe_events.log"
+
+# --- 日志保护配置 ---
+MAX_LINES=1000       # 最大保留行数
+MAX_SIZE_KB=200      # 最大文件大小 (单位: KB)
+
+log() {
+    # [修改位置] 将时间戳移至函数内部，确保记录的是写入瞬间的时间
+    local TS="$(/bin/date '+%Y-%m-%d %H:%M:%S')"
+    
+    # [修改位置] 磁盘保护逻辑：检查行数与文件大小
+    if [ -f "$LOG_FILE" ]; then
+        # 获取当前文件大小 (KB)
+        local CURRENT_SIZE=$(/usr/bin/du -k "$LOG_FILE" | cut -f1)
+        # 获取当前行数
+        local CURRENT_LINES=$(/usr/bin/wc -l < "$LOG_FILE")
+
+        # 如果超过大小或行数限制，执行清理 (保留最后 200 行)
+        if [ "$CURRENT_SIZE" -gt "$MAX_SIZE_KB" ] || [ "$CURRENT_LINES" -gt "$MAX_LINES" ]; then
+            /bin/sed -i '1,800d' "$LOG_FILE"
+            echo "[$TS] [SYSTEM] 日志达到阈值，已自动轮转以保护磁盘。" >> "$LOG_FILE"
+        fi
+    fi
+
+    # 写入日志内容 (使用绝对路径确保 Hotplug 环境下稳定)
+    echo "[$TS] $1" >> "$LOG_FILE"
+    /bin/sync # 强制数据落盘，防止断电丢失
+}
+
+case "$1" in
+    ppp-up)
+        log "[PPPoE] 链路建立 (接口=$2 用户=$3 IP=$4)"
+        ;;
+    ppp-down)
+        log "[PPPoE] 链路断开 (接口=$2 用户=$3)"
+        ;;
+    wan-up)
+        log "[WAN] 接口已启动 (UP)"
+        ;;
+    wan-down)
+        log "[WAN] 接口已关闭 (DOWN)"
+        ;;
+    network-restart)
+        log "[系统] 网络服务已重启"
+        ;;
+    firewall-restart)
+        log "[系统] 防火墙服务已重启"
+        ;;
+    test-manual)
+        log "[测试] 手动触发测试成功"
+        ;;
+    *)
+        log "[未知事件] $*"
+        ;;
+esac
+EOL
+
+chmod +x "$LOGGER"
+
+# ------------------------------------------------
+# hotplug: 接口状态钩子
+# ------------------------------------------------
+echo "[*] 正在安装接口热插拔监控钩子..."
+mkdir -p /etc/hotplug.d/iface
+
+cat << 'EOL' > /etc/hotplug.d/iface/99-wan-logger
+#!/bin/sh
+[ "$INTERFACE" = "wan" ] || exit 0
+
+case "$ACTION" in
+    ifup)
+        /root/pppoe_watchdog/pppoe_logger.sh wan-up
+        ;;
+    ifdown)
+        /root/pppoe_watchdog/pppoe_logger.sh wan-down
+        ;;
+esac
+EOL
+
+chmod +x /etc/hotplug.d/iface/99-wan-logger
+
+# ------------------------------------------------
+# hotplug: PPP 拨号钩子
+# ------------------------------------------------
+echo "[*] 正在安装拨号链路监控钩子..."
+mkdir -p /etc/hotplug.d/ppp
+
+cat << 'EOL' > /etc/hotplug.d/ppp/99-ppp-logger
+#!/bin/sh
+case "$ACTION" in
+    up)
+        /root/pppoe_watchdog/pppoe_logger.sh ppp-up "$IFNAME" "$PEERNAME" "$IPLOCAL"
+        ;;
+    down)
+        /root/pppoe_watchdog/pppoe_logger.sh ppp-down "$IFNAME" "$PEERNAME"
+        ;;
+esac
+EOL
+
+chmod +x /etc/hotplug.d/ppp/99-ppp-logger
+
+echo "[✓] PPPoE 观测系统部署成功。"
+echo "日志路径: $LOG_FILE"
+echo "手动测试指令: $LOGGER test-manual"
