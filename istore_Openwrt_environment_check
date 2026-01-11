@@ -47,7 +47,16 @@ which procd_open_instance  # 通常这个在 sh 环境下不可见，但在 rc.c
 等 1-2 分钟，执行 `cat /tmp/cron_test.txt`。如果有内容，说明“强制写入文件 + 重启服务”的方案在 iStoreOS 下完全可行。
 5. **清理测试：**
 手动编辑 `/etc/crontabs/root` 删除该行，并删除 `/tmp/cron_test.txt`。
-
+方法一：使用 vi 编辑器手动删除（最标准）
+`vi /etc/crontabs/root`
+方法二：使用 sed 命令快速删除（最推荐）
+`sed -i '/cron_test.txt/d' /etc/crontabs/root`
+最后：清理临时文件并重载服务
+`rm /tmp/cron_test.txt`
+重启 Cron 服务（使改动生效）：
+`/etc/init.d/cron restart`
+确认是否彻底删干净
+`cat /etc/crontabs/root`
 ---
 
 ### 第三阶段：Init.d 与 Procd 服务模板验证
