@@ -44,7 +44,7 @@ cat << 'EOF' > "$LOGIC_PATH"
 #!/bin/sh
 
 # ---------- 配置区域 ----------
-CHECK_IP="114.114.114.114"
+CHECK_IP="www.baidu.com"
 CHECK_INTERVAL=60
 SAFE_UPTIME=600
 
@@ -52,7 +52,7 @@ SAFE_UPTIME=600
 L1_THRESHOLD=2
 L2_THRESHOLD=5
 L3_THRESHOLD=10
-L4_SOS_THRESHOLD=15
+L4_SOS_THRESHOLD=10
 
 # 文件路径
 LOG_FILE="/root/network_monitor.log"
