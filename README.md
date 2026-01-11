@@ -171,7 +171,19 @@ ls -l /root/SOS_SYSTEM
 ```bash
 crontab -l | grep network_monitor
 crontab -l | grep net_rb_count
+```
 
+* **检查点**：如果你担心为开启服务自启动，追求“强迫症级别”的完美（消除报错）Command failed: Not found。
+
+#### 4. 请移除 /sbin/reload_config或错误重定向：将 enable 的报错信息屏蔽掉（因为即使报错，它其实也已经完成了软链接的创建）。或者和我一样，请检查以下 
+
+```bash
+检查自启软链接 (最直接的物理证据)
+ls -l /etc/rc.d/S99network_monitor
+使用 enabled 指令查询 (脚本逻辑验证)
+/etc/init.d/network_monitor enabled && echo "已开启自启" || echo "未开启自启"
+查看 ubus 服务列表 (运行监控审计)
+ubus call service list '{"name":"network_monitor"}'
 ```
 
 * **检查点**：确认每分钟或每几分钟执行一次检测的逻辑是否在列。
