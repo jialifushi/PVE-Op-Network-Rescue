@@ -69,45 +69,6 @@ fi
 
 ---
 
-### 3. 一个被忽略的“Bug”：OpenWrt 的僵尸状态
-
-你刚刚的提问让我想到了一个逻辑死角，这可能是未来潜在的问题。
-
-**死角场景：**
-
-1. OpenWrt 累计 10 次重启（设定阈值 10）。
-2. OpenWrt 发出 SOS。
-3. PVE 介入，重启物理机。
-4. **物理机重启回来后，OpenWrt 的 `/root/net_rb_count` 依然是 10！**
-5. OpenWrt 启动 -> Ping 失败 -> 读取计数器 (10) -> **直接再次生成 SOS**。
-6. OpenWrt 认为“我已经尽力了”，**停止尝试 L1/L2/L3 修复**。
-7. PVE 看到今日已重启标记，忽略 SOS。
-
-**后果：**
-PVE 重启了一次物理机，但 OpenWrt 醒来后发现自己“案底”还在，直接放弃治疗了。这导致 PVE 重启后，OpenWrt 连一次重拨（ifup wan）都不会尝试，就直接躺平了。
-
-### 🚀 优化建议（完美闭环）
-
-为了解决这个“PVE 重启后 OpenWrt 直接躺平”的问题，建议修改 **PVE 的监控脚本**，在重启物理机之前，**顺手帮 OpenWrt 把计数器归零**。
-
-**修改方法：**
-在 PVE 脚本的 `【终极动作】` 区域，把删除 SOS 的命令增强一下：
-
-**原代码：**
-
-```bash
-ssh ... "rm -f /root/SOS_SYSTEM"
-
-```
-
-**优化后代码：**
-
-```bash
-# 既删除 SOS 信号，又重置 OpenWrt 的重启计数，给它重生的机会
-ssh -o ConnectTimeout=10 root@$OP_IP "rm -f /root/SOS_SYSTEM && echo 0 > /root/net_rb_count && rm -f /root/net_cooling_ts"
-
-```
-
 ### 总结
 
 1. **L4 阈值建议改到 8 或 10**：这样能保证 PVE 在断网半天左右介入，比现在的 15 更实用。
