@@ -1,0 +1,114 @@
+这是一个非常严谨的思路。在 各种牛鬼蛇神的OpenWrt这种嵌入式系统上，例如iStoreOS等，这种环境的微小差异确实会导致脚本在手动执行时正常，但在后台（无环境变量）运行时失效。
+
+为了确保你可以成功运行和微调脚本，且脚本能够“一把过”，请按照以下这份 **Openwrt 环境兼容性手动验证指南** 进行操作。
+
+---
+
+### 第一阶段：路径与环境变量验证
+
+后台运行的脚本没有 `$PATH` 变量。我们需要确定所有核心指令的“绝对住址”。
+
+**请依次执行并记录结果：**
+
+```bash
+# 1. 检查网络核心指令
+which ping
+which ifup
+which ifdown
+
+# 2. 检查系统核心指令
+which reboot
+which date
+which sync
+which pgrep
+
+# 3. 检查 openwrt 特有的服务管理工具
+which procd_open_instance  # 通常这个在 sh 环境下不可见，但在 rc.common 里可用
+
+```
+
+> **目的**：如果在脚本里只写 `ping`，后台可能找不到；如果 `which` 返回的是 `/bin/ping`，我们在脚本里就必须写 `/bin/ping`。
+
+---
+
+### 第二阶段：Crontab 写入机制测试
+
+不同的openwrt 有时会拦截对 `crontab` 命令的直接修改。我们需要测试“手动强制写入”是否生效。
+
+**请执行以下步骤：**
+
+1. **查看当前内容并备份：**
+`cat /etc/crontabs/root`
+2. **手动追加一行测试任务：**
+`echo "* * * * * echo 'test' >> /tmp/cron_test.txt" >> /etc/crontabs/root`
+3. **重启 Cron 服务：**
+`/etc/init.d/cron restart`
+4. **验证结果：**
+等 1-2 分钟，执行 `cat /tmp/cron_test.txt`。如果有内容，说明“强制写入文件 + 重启服务”的方案在 iStoreOS 下完全可行。
+5. **清理测试：**
+手动编辑 `/etc/crontabs/root` 删除该行，并删除 `/tmp/cron_test.txt`。
+
+---
+
+### 第三阶段：Init.d 与 Procd 服务模板验证
+
+这是解决 `Command failed: Not found` 报错的关键。我们将创建一个“空壳”服务来测试兼容性。
+
+**请执行以下操作：**
+
+1. **创建一个临时测试服务：**
+
+```bash
+cat << 'EOF' > /etc/init.d/test_procd
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /bin/sleep 1000
+    procd_close_instance
+}
+EOF
+
+```
+
+2. **赋予权限：**
+`chmod +x /etc/init.d/test_procd`
+3. **执行启用与启动：**
+`/etc/init.d/test_procd enable`
+`/etc/init.d/test_procd restart`
+4. **观察报错：**
+如果这一步**没有**出现 `Command failed: Not found`，说明我们的 `procd` 模板语法在 iStoreOS 下是正确的。
+5. **清理测试：**
+`/etc/init.d/test_procd disable`
+rm /etc/init.d/test_procd
+
+---
+
+### 第四阶段：网络重启指令安全性测试
+
+在不真正断网的前提下，测试指令是否能被系统正确识别（不产生实际动作，只看语法）。
+
+**请执行：**
+
+```bash
+# 测试 network 重启指令的语法（有些版本是 /etc/init.d/network restart，有些建议使用 ubus）
+/etc/init.d/network help
+
+# 测试 ifup 指令是否识别 wan 接口
+/sbin/ifup wan --help
+
+```
+
+---
+
+### 总结与反馈
+
+**请根据您反馈的信息：**
+
+**再次微调脚本，然后运行以上Openwrt专用脚本检查指南，确保问题消失**
+例如以下可能还存在的问题：
+1. `which ping` 和 `which ifup` 的具体路径。
+2. 第二阶段（Cron）是否成功生成了 `/tmp/cron_test.txt`。
+3. 第三阶段（Procd）在 `restart` 时是否还弹出 `Not found` 错误。
+
