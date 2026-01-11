@@ -202,7 +202,7 @@ ubus call service list '{"name":"network_monitor"}'
 * **最终验证**：你的 SSH 应该被踢出，且物理机指示灯闪烁重启。
 
 
-### 7. 为了检查Openwrt脚本是否如期望在运行，引入Openwrt_Network_iStoreOS_check脚本来进行监督执行情况，确保“观测系统”已经 100% 潜伏到位。
+### 7. 为了检查Openwrt脚本是否如期望在运行，引入Openwrt_Network_check脚本来进行监督执行情况，确保“观测系统”已经 100% 潜伏到位。
 
 脚本已经具备了非常高的**路径兼容性**，可以在任意目录下执行，如果不放心，以下是一套标准的**部署后自检清单**。
 
