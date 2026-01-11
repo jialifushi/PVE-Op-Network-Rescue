@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ---------- 配置区域 ----------
-VM_ID="100"                       # 您的 OpenWrt 虚拟机 ID
+VM_ID="110"                       # 您的 OpenWrt 虚拟机 ID
 OP_IP="192.168.10.1"               # OpenWrt 的内网 IP
 TARGET_IP="www.baidu.com"       # 互联网检测目标
 MONITOR_SCRIPT="/root/pve_host_monitor.sh"
