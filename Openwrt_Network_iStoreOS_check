@@ -1,8 +1,7 @@
 #!/bin/sh
 # ==========================================
 # PPPoE / WAN / Network 重启日志系统
-# 适用于 OpenWrt / iStoreOS 的一键部署脚本
-# Author: ChatGPT (优化版 v3.5)
+# 适用于 OpenWrt / iStoreOS 的一键部署脚本pppoe_logger.sh
 # ==========================================
 
 BASE_DIR="/root/pppoe_watchdog"
