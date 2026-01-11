@@ -202,6 +202,75 @@ ubus call service list '{"name":"network_monitor"}'
 * **最终验证**：你的 SSH 应该被踢出，且物理机指示灯闪烁重启。
 
 
+### 7. 为了检查Openwrt脚本是否如期望在运行，引入Openwrt_Network_iStoreOS_check脚本来进行监督执行情况，确保“观测系统”已经 100% 潜伏到位。
+
+脚本已经具备了非常高的**路径兼容性**，可以在任意目录下执行，如果不放心，以下是一套标准的**部署后自检清单**。
+
+#### 维度 A：文件完整性检查
+
+检查脚本是否已成功生成到目标目录：
+
+```bash
+ls -l /root/pppoe_watchdog/pppoe_logger.sh
+
+```
+
+* **预期**：看到该文件存在，且权限包含 `rwx`（可执行）。
+
+#### 维度 B：Hotplug 钩子注入检查
+
+这是“观测系统”的眼睛，必须确认钩子已挂载到系统内核事件中：
+
+```bash
+ls -l /etc/hotplug.d/iface/99-wan-logger
+ls -l /etc/hotplug.d/ppp/99-ppp-logger
+
+```
+
+* **预期**：两个文件均存在，且指向 `/root/pppoe_watchdog/pppoe_logger.sh`。
+
+#### 维度 C：功能性端到端测试（核心动作）
+
+手动触发一次日志写入，验证“路径、权限、磁盘保护逻辑”是否闭环：
+
+```bash
+# 执行手动测试指令
+/root/pppoe_watchdog/pppoe_logger.sh test-manual
+
+# 查看日志最后一行
+tail -n 1 /root/pppoe_watchdog/pppoe_events.log
+
+```
+
+* **预期**：日志中出现 `[2026-01-11 xx:xx:xx] [测试] 手动触发测试成功`。
+
+#### 维度 D：磁盘保护逻辑审计
+
+为了验证我们合入的“行数限制”和“磁盘同步”是否有效，可以查看日志文件的属性：
+
+```bash
+du -h /root/pppoe_watchdog/pppoe_events.log
+
+```
+
+* **预期**：文件大小应该只有几 KB，证明磁盘空间占用极小。
+
+---
+
+### 📊 快速自检脚本（一键复制）
+
+如果你想省事，可以在部署完后直接把这段命令贴进去，它会帮你自动完成上述审计：
+
+```bash
+echo "--- 部署审计开始 ---"
+[ -x "/root/pppoe_watchdog/pppoe_logger.sh" ] && echo "[OK] 日志脚本已就绪" || echo "[FAIL] 脚本丢失或无权限"
+[ -f "/etc/hotplug.d/iface/99-wan-logger" ] && echo "[OK] 接口钩子已挂载" || echo "[FAIL] 接口钩子失效"
+[ -f "/etc/hotplug.d/ppp/99-ppp-logger" ] && echo "[OK] 拨号钩子已挂载" || echo "[FAIL] 拨号钩子失效"
+/root/pppoe_watchdog/pppoe_logger.sh test-manual
+grep "手动触发测试" /root/pppoe_watchdog/pppoe_events.log > /dev/null && echo "[OK] 日志写入链路通畅" || echo "[FAIL] 日志写入失败"
+echo "--- 审计结束 ---"
+
+```
 
 
 ### 总结
