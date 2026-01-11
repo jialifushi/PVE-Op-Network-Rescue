@@ -166,10 +166,11 @@ ls -l /root/SOS_SYSTEM
 
 * **检查点**：如果这个文件存在，说明 OpenWrt 已经在等 PVE 来重启它了。
 
-#### 4. 定时任务同步检查
+#### 4. 定时任务同步检查，如果查不到用(改用计数器作为搜索词)检查 Crontab 
 
 ```bash
 crontab -l | grep network_monitor
+crontab -l | grep net_rb_count
 
 ```
 
