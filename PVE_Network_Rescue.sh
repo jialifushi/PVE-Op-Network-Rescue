@@ -68,7 +68,8 @@ while true; do
             
             # --- 重启前的终极三部曲 ---
             # 1. 登录 OP 删除 SOS 信号文件
-            ssh -o ConnectTimeout=10 root@$OP_IP "rm -f /root/SOS_SYSTEM"
+            # 既删除 SOS 信号，又重置 OpenWrt 的重启计数，给它重生的机会
+            ssh -o ConnectTimeout=10 root@$OP_IP "rm -f /root/SOS_SYSTEM && echo 0 > /root/net_rb_count && rm -f /root/net_cooling_ts"
             # 2. 标记 PVE 今日已处理
             touch "$PVE_MARK"
             # 3. 记录重启时刻
