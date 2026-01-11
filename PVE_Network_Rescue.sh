@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # ---------- 配置区域 ----------
-VM_ID="110"                       # 您的 OpenWrt 虚拟机 ID
+VM_ID="110"                        # 您的 OpenWrt 虚拟机 ID
 OP_IP="192.168.10.1"               # OpenWrt 的内网 IP
-TARGET_IP="www.baidu.com"       # 互联网检测目标
+TARGET_IP="www.baidu.com"        # 互联网检测目标
 MONITOR_SCRIPT="/root/pve_host_monitor.sh"
 LOG_FILE="/var/log/pve_host_monitor.log"
 PVE_MARK="/root/pve_did_reboot_today"
@@ -24,10 +24,8 @@ echo "  -> SSH 通讯正常。"
 
 # 2. 生成核心守护脚本
 echo "[2/4] 正在生成核心监控逻辑..."
-cat << 'EOF' > "$MONITOR_SCRIPT"
-#!/bin/bash
 
-# 导入配置（由部署脚本填充）直接将变量通过 cat 写入，不再二次 sed
+# 注意：这里修正了原代码中 cat 嵌套写入的逻辑冲突，直接生成最终脚本内容
 cat << EOF > "$MONITOR_SCRIPT"
 #!/bin/bash
 OP_IP="$OP_IP"
@@ -38,30 +36,30 @@ LOG_FILE="$LOG_FILE"
 PVE_MARK="$PVE_MARK"
 
 log_pve() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') $1" >> "$LOG_FILE"
+    echo "\$(date '+%Y-%m-%d %H:%M:%S') \$1" >> "\$LOG_FILE"
 }
 
 while true; do
     # 每天 0 点由 Crontab 删除标记
-    if [ -f "$PVE_MARK" ]; then
+    if [ -f "\$PVE_MARK" ]; then
         sleep 600 # 已救过，休眠 10 分钟后再次检查标记是否存在
         continue
     fi
 
     # 监测互联网 (低频)
-    if ! ping -c 2 -W 5 "$TARGET_IP" > /dev/null 2>&1; then
+    if ! ping -c 2 -W 5 "\$TARGET_IP" > /dev/null 2>&1; then
         log_pve "【检测】互联网断开，开始检索 OpenWrt SOS 信号..."
 
         # 核心：带超时的 SSH 检查信号
-        SOS_STATUS=$(ssh -o ConnectTimeout=10 -o BatchMode=yes root@$OP_IP "[ -f /root/SOS_SYSTEM ] && echo 'SOS'" 2>/dev/null)
+        SOS_STATUS=\$(ssh -o ConnectTimeout=10 -o BatchMode=yes root@\$OP_IP "[ -f /root/SOS_SYSTEM ] && echo 'SOS'" 2>/dev/null)
 
-        if [ "$SOS_STATUS" == "SOS" ]; then
+        if [ "\$SOS_STATUS" == "SOS" ]; then
             log_pve "【确认】捕获 SOS 信号！OpenWrt 自救已穷尽。准备介入重启 PVE。"
 
             # 冲突规避：等待 OpenWrt 稳定在线（防止在 OP 重启中途 PVE 也重启）
-            while ! ping -c 1 -W 2 "$OP_IP" > /dev/null 2>&1; do
+            while ! ping -c 1 -W 2 "\$OP_IP" > /dev/null 2>&1; do
                 log_pve "【等待】OpenWrt 响应超时（可能正在自愈重启中），40秒后重试..."
-                sleep "$RETRY_PING_OP_INTERVAL"
+                sleep "\$RETRY_PING_OP_INTERVAL"
             done
 
             log_pve "【同步】OpenWrt 已稳定，开始下达系统重启指令..."
@@ -69,26 +67,43 @@ while true; do
             # --- 重启前的终极三部曲 ---
             # 1. 登录 OP 删除 SOS 信号文件
             # 既删除 SOS 信号，又重置 OpenWrt 的重启计数，给它重生的机会
-            ssh -o ConnectTimeout=10 root@$OP_IP "rm -f /root/SOS_SYSTEM && echo 0 > /root/net_rb_count && rm -f /root/net_cooling_ts"
-            # 2. 标记 PVE 今日已处理
-            touch "$PVE_MARK"
+            ssh -o ConnectTimeout=10 root@\$OP_IP "rm -f /root/SOS_SYSTEM && echo 0 > /root/net_rb_count && rm -f /root/net_cooling_ts"
+            
+            # 2. 标记 PVE 今日已处理 (免死金牌)
+            touch "\$PVE_MARK"
+            
             # 3. 记录重启时刻
-            log_pve "【终极动作】删除 SOS 成功。PVE 物理机将在 10 秒后强制重启！"
+            log_pve "【终极动作】删除 SOS 成功。PVE 物理机将在 10 秒后执行优雅重启..."
             
             sync
             sleep 10
-            /bin/systemctl reboot
+
+            # --- [合入修改：阶梯式重启尝试] ---
+            # 尝试 A: 使用绝对路径的 systemctl (基于 which 测试结果)
+            /usr/bin/systemctl reboot
+
+            # 后悔药检测：如果系统没重启，脚本会运行到这里
+            sleep 30
+
+            # 尝试 B: 使用备选路径 reboot (基于 which 测试结果)
+            /usr/sbin/reboot
+
+            # 最终回滚机制：如果运行到这里，说明命令全部失效
+            sleep 30
+            if [ -f "\$PVE_MARK" ]; then
+                log_pve "【严重错误】检测到 PVE 未能成功重启！命令执行失效。"
+                log_pve "【回退】正在撕毁免死金牌，以便在下个检测周期重试。"
+                rm -f "\$PVE_MARK"
+            fi
+            # ----------------------------------
         else
             log_pve "【观察】未发现 SOS 信号。判定 OpenWrt 仍在尝试自愈或处于熔断期。"
         fi
     fi
-    sleep "$CHECK_INTERVAL"
+    sleep "\$CHECK_INTERVAL"
 done
 EOF
 
-# 修正脚本中的变量值（确保与部署配置同步）
-sed -i "s/OP_IP=.*/OP_IP=\"$OP_IP\"/" "$MONITOR_SCRIPT"
-sed -i "s/TARGET_IP=.*/TARGET_IP=\"$TARGET_IP\"/" "$MONITOR_SCRIPT"
 chmod +x "$MONITOR_SCRIPT"
 echo "  -> 核心脚本已就绪。"
 
