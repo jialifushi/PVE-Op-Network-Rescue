@@ -31,6 +31,7 @@ ERROR: Host key verification failed.
 因此：
 🛠️ 解决方案：清除“旧指纹”
 你只需要在 PVE 终端执行以下两条命令，清除掉过期的记录，然后再重新发送密钥即可。
+通常指纹记录在了系统全局配置 /etc/ssh/ssh_known_hosts 中
 
 # 清理个人记录
 ssh-keygen -f "/root/.ssh/known_hosts" -R "192.168.10.1"
