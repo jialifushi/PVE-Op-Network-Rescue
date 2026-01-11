@@ -77,7 +77,7 @@ while true; do
             
             sync
             sleep 10
-            reboot
+            /bin/systemctl reboot
         else
             log_pve "【观察】未发现 SOS 信号。判定 OpenWrt 仍在尝试自愈或处于熔断期。"
         fi
