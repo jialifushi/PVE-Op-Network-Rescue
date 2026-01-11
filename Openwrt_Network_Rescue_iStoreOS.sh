@@ -244,7 +244,7 @@ chmod +x "$SERVICE_PATH"
 sync && sleep 1 # 增强同步，防止 enable 时找不到文件
 
 # 【关键补丁】强制 PVE/OpenWrt 重新加载配置索引
-/sbin/reload_config
+# /sbin/reload_config
 
 # 指令拆分：分步执行 enable 和 restart，确保在 iStoreOS 上无歧义，防止解析错误
 "$SERVICE_PATH" enable
