@@ -35,9 +35,148 @@ RETRY_PING_OP_INTERVAL=40     # 等待 OP 恢复的频率
 LOG_FILE="$LOG_FILE"
 PVE_MARK="$PVE_MARK"
 
+# ---------------- 新增：核心超时配置参数 ----------------
+VM_SHUTDOWN_TIMEOUT=60        # 虚拟机第一次关机等待超时 (秒)
+VM_SHUTDOWN_RETRY_TIMEOUT=60  # 虚拟机第二次关机等待超时 (秒)
+L1_WAIT=120                   # L1 层重启观察期 (秒)
+L2_WAIT=60                    # L2 层重启观察期 (秒)
+L3_WAIT=30                    # L3 层重启观察期 (秒)
+L4_WAIT=60                    # L4 层内核重启观察期 (秒)
+
 log_pve() {
     echo "\$(date '+%Y-%m-%d %H:%M:%S') \$1" >> "\$LOG_FILE"
 }
+
+# ---------------- 新增函数：等待虚拟机关闭 ----------------
+wait_vm_shutdown() {
+    local vmid=\$1
+    local timeout=\$2
+    local count=0
+    while [ \$count -lt \$timeout ]; do
+        if ! qm status "\$vmid" 2>/dev/null | grep -q "status: running"; then
+            return 0 # 已关机返回成功
+        fi
+        sleep 1
+        count=\$((count + 1))
+    done
+    return 1 # 超时返回失败
+}
+
+# ---------------- 新增函数：串行关闭所有虚拟机 ----------------
+shutdown_all_vms() {
+    log_pve "==========================================="
+    log_pve "【VM】开始执行所有运行中虚拟机的优雅关机流程"
+    log_pve "==========================================="
+    local RUNNING_VMS=\$(qm list 2>/dev/null | awk '\$3 == "running" {print \$1}')
+    local TOTAL=\$(echo "\$RUNNING_VMS" | grep -c '[^[:space:]]' || true)
+    
+    if [ -z "\$RUNNING_VMS" ] || [ "\$TOTAL" -eq 0 ]; then
+        log_pve "【VM】当前没有运行中的虚拟机，跳过关机流程。"
+        return
+    fi
+
+    local INDEX=0
+    for VMID in \$RUNNING_VMS; do
+        INDEX=\$(( INDEX + 1 ))
+        local VMNAME=\$(qm config "\$VMID" 2>/dev/null | grep '^name:' | awk '{print \$2}')
+        [ -z "\$VMNAME" ] && VMNAME="未知"
+        
+        log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID 名称=\$VMNAME - 发送第一次优雅关机指令..."
+        qm shutdown "\$VMID" >/dev/null 2>&1
+        log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID - 等待关机，超时时间 \${VM_SHUTDOWN_TIMEOUT}s..."
+        
+        if wait_vm_shutdown "\$VMID" "\$VM_SHUTDOWN_TIMEOUT"; then
+            log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID 名称=\$VMNAME ✔ 第一次关机成功。"
+            continue
+        fi
+        
+        # 第一次超时，发起第二次
+        log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID 名称=\$VMNAME ✘ 第一次关机超时（\${VM_SHUTDOWN_TIMEOUT}s），发起第二次尝试..."
+        qm shutdown "\$VMID" >/dev/null 2>&1
+        log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID - 等待第二次关机，超时时间 \${VM_SHUTDOWN_RETRY_TIMEOUT}s..."
+        
+        if wait_vm_shutdown "\$VMID" "\$VM_SHUTDOWN_RETRY_TIMEOUT"; then
+            log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID 名称=\$VMNAME ✔ 第二次关机成功。"
+            continue
+        fi
+        
+        # 两次均失败，兜底强制关闭
+        log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID 名称=\$VMNAME ✘ 两次关机均超时，跳过优雅关闭。"
+        log_pve "【VM \$INDEX/\$TOTAL】VMID=\$VMID ⚠ 警告：正执行 qm stop 强制断电，可能存在数据风险！"
+        qm stop "\$VMID" >/dev/null 2>&1
+    done
+    log_pve "-------------------------------------------"
+    log_pve "【VM】所有虚拟机处理完毕（共 \${TOTAL} 台），准备执行宿主机重启。"
+    log_pve "-------------------------------------------"
+}
+
+# ---------------- 新增函数：四层递进式重启机制 ----------------
+do_reboot() {
+    log_pve "==========================================="
+    log_pve "【REBOOT】PVE 四层重启机制已触发"
+    log_pve "==========================================="
+    
+    # 1. 串行优雅关闭虚拟机
+    shutdown_all_vms
+    
+    # 2. 磁盘同步
+    log_pve "【REBOOT】执行系统级磁盘同步 sync..."
+    sync
+
+    # ─── L1：优雅重启 ────────────────────────────────────────
+    log_pve "-------------------------------------------"
+    log_pve "【L1】systemctl reboot - 优雅重启，等待剩余系统服务关闭..."
+    log_pve "-------------------------------------------"
+    /usr/bin/systemctl reboot
+    log_pve "【L1】指令已发送，等待 \${L1_WAIT}s 观察是否生效..."
+    sleep "\$L1_WAIT"
+
+    # ─── L2：跳过服务流程 ────────────────────────────────────
+    log_pve "-------------------------------------------"
+    log_pve "【L2】L1 未生效，尝试 systemctl reboot --force（跳过服务停止流程）..."
+    log_pve "-------------------------------------------"
+    /usr/bin/systemctl reboot --force
+    log_pve "【L2】指令已发送，等待 \${L2_WAIT}s 观察是否生效..."
+    sleep "\$L2_WAIT"
+
+    # ─── L3：直接调用内核 reboot() ───────────────────────────
+    log_pve "-------------------------------------------"
+    log_pve "【L3】L2 未生效，尝试 systemctl reboot --force --force（直接内核 reboot）..."
+    log_pve "-------------------------------------------"
+    sync
+    /usr/bin/systemctl reboot --force --force
+    log_pve "【L3】指令已发送，等待 \${L3_WAIT}s 观察是否生效..."
+    sleep "\$L3_WAIT"
+
+    # ─── L4：内核 SysRq 终极重启 ─────────────────────────────
+    log_pve "-------------------------------------------"
+    log_pve "【L4】L3 未生效，触发内核级 SysRq 强制重启（最终手段）..."
+    log_pve "-------------------------------------------"
+    echo 1 > /proc/sys/kernel/sysrq
+    
+    log_pve "【L4】触发内核态 sync (强制刷入脏数据)..."
+    echo s > /proc/sysrq-trigger
+    sleep 2
+    
+    log_pve "【L4】触发内核态 umount (将文件系统重挂载为只读)..."
+    echo u > /proc/sysrq-trigger
+    sleep 1
+    
+    log_pve "【L4】SysRq 写入 b，系统应立即物理重启..."
+    sync
+    echo b > /proc/sysrq-trigger
+
+    # ─── 全部失效兜底 ─────────────────────────────────────────
+    sleep "\$L4_WAIT"
+    log_pve "【严重异常】四层重启机制全部失效！系统底层可能已彻底锁死。"
+    log_pve "【回退】正在撕毁免死金牌，以便在下个检测周期重试。"
+    rm -f "\$PVE_MARK"
+}
+
+# [必须加入的位置]：脚本加载后的第一件事，就是打个招呼
+log_pve "==========================================="
+log_pve "【系统启动】PVE 哨兵脚本已加载并进入后台模式"
+log_pve "==========================================="
 
 while true; do
     # 每天 0 点由 Crontab 删除标记
@@ -73,29 +212,15 @@ while true; do
             touch "\$PVE_MARK"
             
             # 3. 记录重启时刻
-            log_pve "【终极动作】删除 SOS 成功。PVE 物理机将在 10 秒后执行优雅重启..."
+            log_pve "【终极动作】删除 SOS 成功。准备执行串行关机与四层系统重启机制..."
             
             sync
             sleep 10
 
-            # --- [合入修改：阶梯式重启尝试] ---
-            # 尝试 A: 使用绝对路径的 systemctl (基于 which 测试结果)
-            /usr/bin/systemctl reboot
-
-            # 后悔药检测：如果系统没重启，脚本会运行到这里
-            sleep 30
-
-            # 尝试 B: 使用备选路径 reboot (基于 which 测试结果)
-            /usr/sbin/reboot
-
-            # 最终回滚机制：如果运行到这里，说明命令全部失效
-            sleep 30
-            if [ -f "\$PVE_MARK" ]; then
-                log_pve "【严重错误】检测到 PVE 未能成功重启！命令执行失效。"
-                log_pve "【回退】正在撕毁免死金牌，以便在下个检测周期重试。"
-                rm -f "\$PVE_MARK"
-            fi
+            # --- [合入修改：调用串行关机与四层重启机制] ---
+            do_reboot
             # ----------------------------------
+            
         else
             log_pve "【观察】未发现 SOS 信号。判定 OpenWrt 仍在尝试自愈或处于熔断期。"
         fi
